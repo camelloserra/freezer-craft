@@ -23,10 +23,13 @@
   };
   const WIDE_FROM = 2.15;       // a partir de esta proporción (ancho / alto) se usa BG_WIDE
   let BG = BG_TALL;
-  const WORLD = 775;            // alto del mundo: más chico = imanes más grandes en pantalla
+  const WORLD = 830;            // alto del mundo en pantallas muy anchas: más chico = imanes más grandes en pantalla
+  const WORLD_PHONE = 1060;     // celular en vertical (el juego se ve girado)
+  const WORLD_TALL = 960;       // alto del mundo en las demás pantallas (así entran todos los imanes sin encimarse)
   let WW = 1300, WH = WORLD, DOORS = [], HANDLES = [];
   let bgBox = { x: 0, y: 0, w: 1, h: 1, k: 1 };
   let itemsWW = null;      // ancho del mundo para el que está armado el acomodo actual
+  let itemsWH = null;      // y su alto
   let pristine = false;    // true mientras el acomodo inicial no fue tocado
   let keepPristine = false;
 
@@ -202,7 +205,8 @@
   // ---------- encuadre, zoom y paneo ----------
   function setWorld() {
     const W = stageWrap.clientWidth || 1, H = stageWrap.clientHeight || 1;
-    WH = WORLD; WW = Math.max(Math.round(WH * W / H), 900);
+    // en el celular los botones ocupan más lugar: un poco más de mundo para que entre todo sin encimarse
+    WH = W / H >= WIDE_FROM ? WORLD : (matchMedia('(pointer: coarse)').matches && Math.min(W, H) < 520 ? WORLD_PHONE : WORLD_TALL); WW = Math.max(Math.round(WH * W / H), 900);
     // fondo tipo "cover", pegado arriba a la izquierda (esquina de la puerta y manija)
     const nextBG = WW / WH >= WIDE_FROM ? BG_WIDE : BG_TALL;
     if (nextBG !== BG || !bgEl.getAttribute('data-bg')) {
@@ -240,12 +244,12 @@
   // Si cambia la forma de la pantalla (por ejemplo al girar el teléfono), los objetos se reparten
   // para ocupar todo el ancho: si nadie tocó nada, se rearma el acomodo inicial; si no, se estira.
   function refit() {
-    if (itemsWW && Math.abs(WW - itemsWW) > 2) {
+    if (itemsWW && (Math.abs(WW - itemsWW) > 2 || (itemsWH && itemsWH !== WH))) {
       if (pristine) { initialLayout(); return; }
-      const f = WW / itemsWW;
-      items.forEach(it => { it.x *= f; });
-      if (introPos) introPos.x *= f;
-      itemsWW = WW;
+      const fx = WW / itemsWW, fy = WH / (itemsWH || WH);
+      items.forEach(it => { it.x *= fx; it.y *= fy; });
+      if (introPos) { introPos.x *= fx; introPos.y *= fy; }
+      itemsWW = WW; itemsWH = WH;
     }
     items.forEach(it => { settle(it); render(it); }); checkPapers(); placeIntro();
     keepPristine = true; save(); keepPristine = false;
@@ -718,7 +722,7 @@
     const add = (id, x, y, r) => { const it = { uid: nextUid++, id, x, y, r, z: nextUid }; items.push(it); return it; };
     const hx = HANDLES.length ? HANDLES[0].x2 : 0;
     const top = DOORS[0];
-    const CX = (hx + top.x2) / 2, CY = (top.y1 + top.y2) / 2 - 22;
+    const CX = WW / 2, CY = (Math.max(0, top.y1) + Math.min(WH, top.y2)) / 2 - 22;   // centrado en la pantalla
 
     // 1) el título
     const used = new Set(), titleBoxes = [];
@@ -735,24 +739,65 @@
     });
     introPos = { x: CX, y: CY + rowGap / 2 + 38 };
 
-    // 2) grilla de ocupación (celdas de 6 unidades): 1 = imán, 2 = prohibido
-    const C = 6, GW = Math.ceil(WW / C), GH = Math.ceil(WH / C);
+    // 2) grilla de ocupación por el CUERPO de cada imán (sin la sombra), en celdas de 2 unidades:
+    //    0 = libre, 1 = imán, 2 = prohibido, 3 = papel (se puede poner un imán encima)
+    const C = 2, GW = Math.ceil(WW / C), GH = Math.ceil(WH / C);
     const occ = new Uint8Array(GW * GH);
+    const span = r => [Math.max(0, Math.floor(r.x1 / C)), Math.max(0, Math.floor(r.y1 / C)), Math.min(GW, Math.ceil(r.x2 / C)), Math.min(GH, Math.ceil(r.y2 / C))];
     const mark = (r, v = 1) => {
-      for (let gy = Math.max(0, Math.floor(r.y1 / C)); gy < Math.min(GH, Math.ceil(r.y2 / C)); gy++)
-        for (let gx = Math.max(0, Math.floor(r.x1 / C)); gx < Math.min(GW, Math.ceil(r.x2 / C)); gx++) occ[gy * GW + gx] = Math.max(occ[gy * GW + gx], v);
+      const [x0, y0, x1, y1] = span(r);
+      for (let gy = y0; gy < y1; gy++) for (let gx = x0; gx < x1; gx++) {
+        const i = gy * GW + gx, o = occ[i];
+        if (v === 2 || o === 0 || (v === 1 && o === 3)) occ[i] = v;
+      }
+      satDirty = true;
     };
-    const free = (r, level = 1) => {
-      if (!DOORS.some(d => r.x1 >= d.x1 + 4 && r.y1 >= d.y1 + 4 && r.x2 <= d.x2 - 4 && r.y2 <= d.y2 - 4)) return false;
-      for (let gy = Math.floor(r.y1 / C); gy < Math.ceil(r.y2 / C); gy++)
-        for (let gx = Math.floor(r.x1 / C); gx < Math.ceil(r.x2 / C); gx++) if (occ[gy * GW + gx] >= level) return false;
-      return true;
+    const inDoor = r => DOORS.some(d => r.x1 >= d.x1 + 2 && r.y1 >= d.y1 + 2 && r.x2 <= d.x2 - 2 && r.y2 <= d.y2 - 2);
+    // sumas acumuladas de celdas ocupadas (A: cualquier cosa; B: todo menos papeles)
+    const SW = GW + 1, satA = new Int32Array(SW * (GH + 1)), satB = new Int32Array(SW * (GH + 1));
+    let satDirty = true;
+    const buildSat = () => {
+      for (let gy = 0; gy < GH; gy++) {
+        let ra = 0, rb = 0;
+        for (let gx = 0; gx < GW; gx++) {
+          const o = occ[gy * GW + gx]; ra += o ? 1 : 0; rb += (o === 1 || o === 2) ? 1 : 0;
+          const k = (gy + 1) * SW + gx + 1; satA[k] = satA[k - SW] + ra; satB[k] = satB[k - SW] + rb;
+        }
+      }
+      satDirty = false;
     };
-    HANDLES.forEach(h => mark({ x1: h.x1, y1: h.y1 - 6, x2: h.x2 + 14, y2: h.y2 + 6 }, 2));
-    // lugar libre solo debajo del logo y de los botones (el resto, hasta arriba de todo, se usa)
-    const markEl = (el, pad = 8) => {
+    const free = (r, overPaper) => {
+      if (!inDoor(r)) return false;
+      if (satDirty) buildSat();
+      const [x0, y0, x1, y1] = span(r), t = overPaper ? satB : satA;
+      return t[y1 * SW + x1] - t[y0 * SW + x1] - t[y1 * SW + x0] + t[y0 * SW + x0] === 0;
+    };
+    const cost = r => {
+      if (!inDoor(r)) return Infinity;
+      const [x0, y0, x1, y1] = span(r); let n = 0;
+      for (let gy = y0; gy < y1; gy++) for (let gx = x0; gx < x1; gx++) { const o = occ[gy * GW + gx]; if (o === 2) return Infinity; if (o === 1) n++; }
+      return n;
+    };
+    // cuerpo real del imán (sin sombra), girado
+    const bodyBox = (it, pad = 0) => {
+      const d = def(it), bb = d.body || [0.08, 0.08, 0.92, 0.92];
+      const rad = (it.r || 0) * Math.PI / 180, cs = Math.cos(rad), sn = Math.sin(rad);
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+      for (const [fx, fy] of [[bb[0], bb[1]], [bb[2], bb[1]], [bb[0], bb[3]], [bb[2], bb[3]]]) {
+        const lx = (fx - 0.5) * d.w, ly = (fy - 0.5) * d.h, X = it.x + lx * cs - ly * sn, Y = it.y + lx * sn + ly * cs;
+        x1 = Math.min(x1, X); y1 = Math.min(y1, Y); x2 = Math.max(x2, X); y2 = Math.max(y2, Y);
+      }
+      return { x1: x1 - pad, y1: y1 - pad, x2: x2 + pad, y2: y2 + pad };
+    };
+
+    // lo que no se tapa: el título, el texto de bienvenida y los botones (debajo de la manija SÍ se puede)
+    items.forEach(it => mark(bodyBox(it, 6), 2));
+    showIntro();
+    const iw = introEl.offsetWidth || 360, ih = introEl.offsetHeight || 60;
+    mark({ x1: introPos.x - iw / 2 - 8, y1: introPos.y - 4, x2: introPos.x + iw / 2 + 8, y2: introPos.y + ih + 6 }, 2);
+    const markEl = (el, pad = 6) => {
       if (!el) return;
-      const r = el.getBoundingClientRect(), w = stageWrap.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
       if (!r.width) return;
       const p = toStage(r.left, r.top), q = toStage(r.right, r.bottom), e = pad / scale;
       mark({ x1: p.x - e, y1: p.y - e, x2: q.x + e, y2: q.y + e }, 2);
@@ -760,61 +805,64 @@
     if (matchMedia('(orientation: portrait) and (pointer: coarse)').matches) {
       // juego girado (celular en vertical): las medidas de pantalla vienen giradas, se usan franjas fijas
       const u = 1 / base;
-      mark({ x1: 0, y1: 0, x2: WW, y2: 58 * u }, 2);
-      mark({ x1: 0, y1: WH - 70 * u, x2: 170 * u, y2: WH }, 2);
-      mark({ x1: WW - 100 * u, y1: WH - 100 * u, x2: WW, y2: WH }, 2);
+      mark({ x1: 0, y1: 0, x2: 200 * u, y2: 52 * u }, 2);
+      mark({ x1: WW - 330 * u, y1: 0, x2: WW, y2: 52 * u }, 2);
+      mark({ x1: 0, y1: WH - 62 * u, x2: 130 * u, y2: WH }, 2);
+      mark({ x1: WW - 90 * u, y1: WH - 90 * u, x2: WW, y2: WH }, 2);
     } else ['.logo', '.actions', '#btnGallery', '#btnCamera'].forEach(q => markEl(document.querySelector(q)));
-    const RX = Math.min(310, WW * 0.25), RY = Math.min(185, WH * 0.24);
-    for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
-      const x = gx * C + C / 2, y = gy * C + C / 2;
-      if (((x - CX) / RX) ** 2 + ((y - CY - 20) / RY) ** 2 < 1) occ[gy * GW + gx] = 2;
-    }
-    titleBoxes.forEach(b => mark(b, 2));
 
     // 3) lugares candidatos, de afuera hacia adentro, con un poco de azar
     const cand = [];
-    for (let y = 10; y < WH; y += 10) for (let x = 10; x < WW; x += 10) {
-      cand.push({ x, y, k: Math.hypot((x - CX) / (WW * 0.5), (y - CY) / (WH * 0.5)) + rand() * 0.22 });
+    for (let y = 6; y < WH; y += 6) for (let x = 6; x < WW; x += 6) {
+      cand.push({ x, y, k: Math.hypot((x - CX) / (WW * 0.5), (y - CY) / (WH * 0.5)) + rand() * 0.18 });
     }
     cand.sort((a, b) => b.k - a.k);
 
-    // 4) papeles y portarretratos primero, después los grandes, después todo mezclado
+    // 4) papeles y portarretratos primero, después los grandes, después todo mezclado.
+    //    Ningún imán encima de otro; solo pueden quedar encima de los papeles (que se caen sin imán).
     const rest = window.MAGNETS.filter(m => !used.has(m.id) && !HOLDER_BALLS.includes(m.id));
     const special = rest.filter(m => m.type === 'paper' || m.type === 'frame');
     const normal = rest.filter(m => !special.includes(m)).sort((a, b) => b.w * b.h - a.w * a.h);
     const big = normal.slice(0, 24), small = normal.slice(24);
     for (let i = small.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [small[i], small[j]] = [small[j], small[i]]; }
     const holderQueue = [...HOLDER_BALLS];
+    let overlaps = 0, onPaper = 0;
 
     for (const m of [...special, ...big, ...small]) {
-      const r = Math.round((rand() - 0.5) * 16), pad = 2;
-      const BODY = special.includes(m) ? 0.4 : 0.42;  // se acomoda por el cuerpo (las sombras pueden pisarse)
+      const isSpecial = special.includes(m), r0 = Math.round((rand() - 0.5) * 16), pad = 0.5;
       let spot = null;
-      for (const c of cand) {
-        const b = box({ id: m.id, x: c.x, y: c.y, r }, BODY);
-        if (free({ x1: b.x1 - pad, y1: b.y1 - pad, x2: b.x2 + pad, y2: b.y2 + pad }, 1)) { spot = { c, b }; break; }
-      }
-      for (const level of [2, 3]) {  // si no hay lugar libre: donde menos tape
+      for (const overPaper of isSpecial ? [false] : [false, true]) {
+        for (const r of [r0, 0, -r0 * 0.5]) {
+          for (const c of cand) {
+            const bx = bodyBox({ id: m.id, x: c.x, y: c.y, r }, pad);
+            if (free(bx, overPaper)) { spot = { c, r, b: bodyBox({ id: m.id, x: c.x, y: c.y, r }) }; if (overPaper) onPaper++; break; }
+          }
+          if (spot) break;
+        }
         if (spot) break;
+      }
+      if (!spot) {  // no entra en ningún lado: donde menos tape
+        overlaps++;
         let best = Infinity;
-        for (let i = 0; i < cand.length; i += 3) {
-          const c = cand[i], b = box({ id: m.id, x: c.x, y: c.y, r }, BODY);
-          if (!free(b, level)) continue;
-          let cost = 0;
-          for (let gy = Math.floor(b.y1 / C); gy < Math.ceil(b.y2 / C) && cost < best; gy++)
-            for (let gx = Math.floor(b.x1 / C); gx < Math.ceil(b.x2 / C); gx++) cost += occ[gy * GW + gx];
-          if (cost < best) { best = cost; spot = { c, b }; }
+        for (let i = 0; i < cand.length; i += 2) {
+          const c = cand[i], bx = bodyBox({ id: m.id, x: c.x, y: c.y, r: r0 }), k = cost(bx);
+          if (k < best) { best = k; spot = { c, r: r0, b: bx }; }
         }
       }
       const c = spot ? spot.c : cand[Math.floor(rand() * 400)];
-      const it = settle(add(m.id, c.x, c.y, r));
-      if (spot) mark(spot.b, special.includes(m) ? 2 : 1);  // nada se acomoda encima de papeles y portarretratos
-      if (m.type === 'paper' && holderQueue.length) add(holderQueue.shift(), it.x + (rand() - 0.5) * 16, it.y - m.h * 0.27, 0);
+      const it = settle(add(m.id, c.x, c.y, spot ? spot.r : r0));
+      if (spot) mark(spot.b, m.type === 'paper' ? 3 : m.type === 'frame' ? 2 : 1);
+      if (m.type === 'paper' && holderQueue.length) {
+        const ball = add(holderQueue.shift(), it.x + (rand() - 0.5) * 16, it.y - m.h * 0.27, 0);
+        mark(bodyBox(ball), 1);
+      }
     }
     holderQueue.forEach(id => { const c = cand[Math.floor(rand() * 300)]; settle(add(id, c.x, c.y, 0)); });
+    window.__pnjOverlaps = overlaps;
+    window.__pnjOnPaper = onPaper;
     items.forEach(render);
     showIntro();
-    itemsWW = WW;
+    itemsWW = WW; itemsWH = WH;
     keepPristine = true; save(); keepPristine = false;
     pristine = true;
   }
@@ -825,7 +873,7 @@
     clearTimeout(saveTimer);
     try {
       const data = items.map(({ id, x, y, r, z, photo, drawing, text, flag }) => ({ id, x: Math.round(x), y: Math.round(y), r, z, photo, drawing, text, flag }));
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ items: data, intro: introPos, ww: itemsWW, pristine }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ items: data, intro: introPos, ww: itemsWW, wh: itemsWH, pristine }));
     } catch { say('No entra más nada en la memoria de este navegador (probá con fotos o dibujos más simples).'); }
   }
   function save() { if (!keepPristine) pristine = false; clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
@@ -836,6 +884,7 @@
       items = data.items.filter(i => BY_ID[i.id]).map(i => ({ ...i, uid: nextUid++ }));
       introPos = data.intro || null;
       itemsWW = data.ww || WW;
+      itemsWH = data.wh || 775;
       pristine = !!data.pristine;
       items.forEach(settle);
       return true;
@@ -1038,6 +1087,6 @@
   matchMedia('(orientation: portrait)').addEventListener?.('change', lateResize);
   new ResizeObserver(onResize).observe(stageWrap);
   layout();
-  if (load()) { items.forEach(render); checkPapers(); }
+  if (load()) { items.forEach(render); refit(); }
   else initialLayout();
 })();
