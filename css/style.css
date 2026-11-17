@@ -301,3 +301,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .fab-left { left: max(16px, env(safe-area-inset-left)); }
 .fab-right { right: max(16px, env(safe-area-inset-right)); }
 .topbar { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+
+/* pantalla completa: en pantallas bajas (celular acostado) solo el ícono */
+#btnFull { font-size: 15px; }
+@media (max-height: 500px), (max-width: 600px) { #btnFull span { display: none; } #btnFull { padding-left: 11px; padding-right: 11px; } }

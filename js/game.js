@@ -1045,6 +1045,29 @@
     $('viewer').hidden = true; openGallery();
   };
 
+  // ---------- pantalla completa (Android, iPad y compu; el iPhone no lo permite, ahí el botón no aparece) ----------
+  const btnFull = $('btnFull'), docEl = document.documentElement;
+  const fsEnabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEnabled && (docEl.requestFullscreen || docEl.webkitRequestFullscreen)) {
+    btnFull.hidden = false;
+    const syncFull = () => {
+      const on = !!fsElement();
+      btnFull.querySelector('span').textContent = on ? 'Salir de pantalla completa' : 'Pantalla completa';
+      btnFull.title = on ? 'Salir de pantalla completa' : 'Pantalla completa';
+      setTimeout(onResize, 120);
+    };
+    btnFull.onclick = () => {
+      if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else {
+        const r = (docEl.requestFullscreen || docEl.webkitRequestFullscreen).call(docEl, { navigationUI: 'hide' });
+        if (r && r.catch) r.catch(() => say('Este navegador no deja usar pantalla completa.'));
+      }
+    };
+    document.addEventListener('fullscreenchange', syncFull);
+    document.addEventListener('webkitfullscreenchange', syncFull);
+  }
+
   // ---------- empezar de nuevo ----------
   const btnReset = $('btnReset'); let resetArmed;
   btnReset.onclick = () => {
