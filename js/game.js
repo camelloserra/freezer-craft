@@ -877,7 +877,7 @@
       await window.Gallery.add(shotBlob, $('shotName').value.trim());
       $('shotModal').hidden = true; $('shotName').value = '';
       say('¡Tu heladera ya está en la galería! 🎉');
-      openGallery();
+      openGallery('recent');
     } catch {
       b.disabled = false; b.textContent = 'Reintentar';
       say('No se pudo subir. Probá de nuevo en un rato.');
@@ -885,31 +885,59 @@
   };
 
   // ---------- galería ----------
-  let viewing = null;
+  // Mundial (Supabase): pestañas Recientes / Top 10 y un corazón para votar cada heladera.
+  let viewing = null, galleryView = 'recent';
   const esc = t => String(t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  async function openGallery() {
+  const heartHTML = p => `<span class="h">♥</span> <span class="n">${p.votes || 0}</span>`;
+  async function vote(p, btns) {
+    btns.forEach(b => b.disabled = true);
+    try {
+      const r = await window.Gallery.vote(p.id);
+      p.votes = r.votes; p.voted = r.voted;
+      btns.forEach(b => { b.innerHTML = heartHTML(p); b.classList.toggle('voted', p.voted); b.classList.remove('pop'); void b.offsetWidth; if (p.voted) b.classList.add('pop'); });
+    } catch { say('No se pudo votar. Probá de nuevo.'); }
+    btns.forEach(b => b.disabled = false);
+  }
+  async function openGallery(view) {
+    if (view) galleryView = view;
     $('galleryModal').hidden = false;
     $('galleryKind').textContent = window.Gallery.shared ? 'de todo el mundo' : 'en este dispositivo';
+    $('galleryTabs').hidden = !window.Gallery.shared;
+    document.querySelectorAll('#galleryTabs button').forEach(b => b.classList.toggle('on', b.dataset.view === galleryView));
     const grid = $('galleryGrid'); grid.innerHTML = '';
+    grid.classList.toggle('ranked', galleryView === 'top');
     let list = [];
-    try { list = await window.Gallery.list(); } catch { say('No pude cargar la galería.'); }
+    try { list = await window.Gallery.list(galleryView === 'top' ? { top: 10 } : {}); } catch { say('No pude cargar la galería.'); }
     $('galleryEmpty').hidden = list.length > 0;
-    for (const p of list) {
+    list.forEach((p, i) => {
       const f = document.createElement('figure');
       const when = p.created ? new Date(p.created).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-      f.innerHTML = `<img src="${p.url}" alt="" loading="lazy"><figcaption>${p.name ? `<b>${esc(p.name)}</b>` : ''}<small>${when}</small></figcaption>`;
+      f.innerHTML = (galleryView === 'top' ? `<span class="rank">#${i + 1}</span>` : '') +
+        `<img src="${p.url}" alt="" loading="lazy"><figcaption>${p.name ? `<b>${esc(p.name)}</b>` : ''}<small>${when}</small></figcaption>`;
+      if (window.Gallery.shared) {
+        const h = document.createElement('button');
+        h.className = 'heart' + (p.voted ? ' voted' : ''); h.title = 'Votar'; h.innerHTML = heartHTML(p);
+        h.onclick = e => { e.stopPropagation(); vote(p, [h]); };
+        f.querySelector('figcaption').appendChild(h);
+        p._cardHeart = h;
+      }
       f.onclick = () => openViewer(p);
       grid.appendChild(f);
-    }
+    });
   }
   function openViewer(p) {
     viewing = p;
     $('viewerImg').src = p.url;
     $('viewerName').textContent = p.name || '';
     $('viewerDelete').hidden = !p.canDelete;
+    const vb = $('viewerVote');
+    vb.hidden = !window.Gallery.shared;
+    if (window.Gallery.shared) { vb.innerHTML = heartHTML(p); vb.classList.toggle('voted', !!p.voted); }
     $('viewer').hidden = false;
   }
-  $('btnGallery').onclick = openGallery;
+  $('viewerVote').onclick = () => { if (viewing) vote(viewing, [$('viewerVote'), viewing._cardHeart].filter(Boolean)); };
+  document.querySelectorAll('#galleryTabs button').forEach(b => { b.onclick = () => openGallery(b.dataset.view); });
+  $('btnGallery').onclick = () => openGallery();
   $('galleryClose').onclick = () => { $('galleryModal').hidden = true; };
   $('viewerClose').onclick = () => { $('viewer').hidden = true; };
   $('viewerDownload').onclick = async () => {

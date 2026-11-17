@@ -1,6 +1,9 @@
 /* Galería de fotos de heladeras.
- * - Sin configurar: guarda las fotos en este dispositivo (IndexedDB).
- * - Con Supabase configurado en js/config.js: galería compartida en la nube.
+ * - Con Supabase configurado en js/config.js: galería MUNDIAL con votos
+ *   (tabla freezer_photos + carpeta "freezer"; ver backend/freezer-gallery.sql).
+ * - Sin configurar: guarda las fotos en este dispositivo (IndexedDB), sin votos.
+ *
+ * El juego solo usa: shared, list({ top }), add(blob, name), vote(id), remove(id).
  */
 window.Gallery = (() => {
   'use strict';
@@ -41,52 +44,70 @@ window.Gallery = (() => {
       await tx('readwrite', s => s.put({ id, blob, name: name || '', created: Date.now() }));
       return id;
     },
+    async vote() { throw new Error('sin votos en modo local'); },
     async remove(id) {
       await tx('readwrite', s => s.delete(id));
       if (urls.has(id)) { URL.revokeObjectURL(urls.get(id)); urls.delete(id); }
     },
   };
 
-  // ---------- compartida (Supabase Storage, sin librerías) ----------
-  // El nombre de la foto viaja dentro del nombre del archivo (en base64url).
-  const enc = t => btoa(unescape(encodeURIComponent(t))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const dec = t => { try { return decodeURIComponent(escape(atob(t.replace(/-/g, '+').replace(/_/g, '/')))); } catch { return ''; } };
+  // ---------- mundial (Supabase, sin librerías) ----------
+  // La clave "publishable" va SOLO en el encabezado apikey (no en Authorization).
   const base = (cfg.supabaseUrl || '').replace(/\/$/, '');
-  const bucket = cfg.bucket || 'galeria';
-  const headers = { apikey: cfg.supabaseAnonKey, Authorization: `Bearer ${cfg.supabaseAnonKey}` };
+  const bucket = cfg.bucket || 'freezer';
+  const H = { apikey: cfg.supabaseAnonKey };
+  const KEY_VOTES = 'freezercraft.votos.v1';   // qué fotos votó ESTE navegador
+  const votedSet = () => { try { return new Set(JSON.parse(localStorage.getItem(KEY_VOTES) || '[]')); } catch { return new Set(); } };
+  const saveVoted = s => { try { localStorage.setItem(KEY_VOTES, JSON.stringify([...s])); } catch { /* sin espacio: no pasa nada */ } };
+  const imgUrl = path => `${base}/storage/v1/object/public/${bucket}/${encodeURIComponent(path)}`;
+
   const cloud = {
-    async list() {
-      const r = await fetch(`${base}/storage/v1/object/list/${bucket}`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prefix: '', limit: 200, offset: 0, sortBy: { column: 'created_at', order: 'desc' } }),
-      });
+    async list({ top } = {}) {
+      const order = top ? 'votes.desc,created_at.desc' : 'created_at.desc';
+      const r = await fetch(`${base}/rest/v1/freezer_photos?select=id,created_at,name,img_path,votes&order=${order}&limit=${top || 200}`, { headers: H });
       if (!r.ok) throw new Error('list ' + r.status);
-      const files = await r.json();
-      return files
-        .filter(f => f.name && /\.(jpe?g|png)$/i.test(f.name))
-        .map(f => ({
-          id: f.name,
-          url: `${base}/storage/v1/object/public/${bucket}/${encodeURIComponent(f.name)}`,
-          created: Date.parse(f.created_at) || 0,
-          name: (/--([A-Za-z0-9_-]+)\.jpe?g$/i.exec(f.name) || [])[1] ? dec(/--([A-Za-z0-9_-]+)\.jpe?g$/i.exec(f.name)[1]) : '',
-          canDelete: false,
-        }));
+      const voted = votedSet();
+      return (await r.json()).map(p => ({
+        id: p.id, url: imgUrl(p.img_path), created: Date.parse(p.created_at) || 0,
+        name: p.name || '', votes: p.votes, voted: voted.has(p.id), canDelete: false,
+      }));
     },
     async add(blob, title) {
-      const t = (title || '').trim().slice(0, 40);
-      const name = `heladera-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${t ? '--' + enc(t) : ''}.jpg`;
-      const r = await fetch(`${base}/storage/v1/object/${bucket}/${name}`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'image/jpeg', 'x-upsert': 'false' },
-        body: blob,
+      const name = (title || '').trim().slice(0, 40);
+      const path = `heladera-${Date.now()}-${Math.random().toString(36).slice(2, 8).padEnd(6, '0')}.jpg`;
+      const up = await fetch(`${base}/storage/v1/object/${bucket}/${path}`, {
+        method: 'POST', headers: { ...H, 'Content-Type': 'image/jpeg', 'x-upsert': 'false' }, body: blob,
       });
-      if (!r.ok) throw new Error('upload ' + r.status);
-      return name;
+      if (!up.ok) throw new Error('upload ' + up.status);
+      const r = await fetch(`${base}/rest/v1/freezer_photos`, {
+        method: 'POST', headers: { ...H, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ name, img_path: path }),
+      });
+      if (!r.ok) throw new Error('save ' + r.status);
+      return path;
     },
-    async remove() { throw new Error('no se puede borrar de la galería compartida'); },
+    async vote(id) {
+      const voted = votedSet();
+      const delta = voted.has(id) ? -1 : 1;
+      const r = await fetch(`${base}/rest/v1/rpc/freezer_vote`, {
+        method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_id: id, p_delta: delta }),
+      });
+      if (!r.ok) throw new Error('vote ' + r.status);
+      const votes = Number(await r.json());
+      if (delta > 0) voted.add(id); else voted.delete(id);
+      saveVoted(voted);
+      return { votes, voted: delta > 0 };
+    },
+    async remove() { throw new Error('no se puede borrar de la galería mundial'); },
   };
 
   const impl = shared ? cloud : local;
-  return { shared, list: () => impl.list(), add: (b, name) => impl.add(b, name), remove: id => impl.remove(id) };
+  return {
+    shared,
+    list: opts => impl.list(opts),
+    add: (b, name) => impl.add(b, name),
+    vote: id => impl.vote(id),
+    remove: id => impl.remove(id),
+  };
 })();
