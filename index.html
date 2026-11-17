@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Freezer.Craft</title>
+  <meta name="description" content="Reacomodá los imanes de tu heladera, dibujá, poné tus fotos y subí tu heladera a la galería.">
+  <meta name="theme-color" content="#1c1c1e">
+  <link rel="icon" href="assets/magnets/a08.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Todo el juego. En un celular en vertical se ve girado: así la persona gira el teléfono. -->
+  <div id="app">
+    <header class="topbar">
+      <h1 class="logo">Freezer<span>.</span>Craft</h1>
+      <nav class="actions">
+        <button id="btnReset" class="glass" title="Volver a acomodar todo como al principio">↺ <span>Empezar de nuevo</span></button>
+      </nav>
+    </header>
+
+    <main id="stageWrap" class="stage-wrap" aria-label="Heladera">
+      <div id="stage" class="stage">
+        <img class="stage-bg" src="assets/fridge.jpg" alt="" draggable="false">
+        <div id="items" class="items"></div>
+        <p id="intro" class="intro" hidden>Creá lo que quieras.<br>Tocá cada objeto para más opciones.</p>
+        <img class="handle-overlay" src="assets/handle.png" alt="" draggable="false">
+      </div>
+      <div id="flash" class="flash"></div>
+    </main>
+
+    <button id="btnGallery" class="glass fab-left" title="Ver la galería">🖼️ <span>Galería</span></button>
+    <button id="btnCamera" class="fab-right" title="Sacarle una foto a tu heladera">
+      <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+    </button>
+  </div>
+
+  <div id="rotateHint" class="rotate-hint">
+    <div class="phone">📱</div>
+    <p>Girá el teléfono para jugar</p>
+  </div>
+
+  <div id="marquee" class="marquee" hidden></div>
+
+  <div id="toolbar" class="toolbar" hidden>
+    <button data-act="rotate">↻ Rotar</button>
+    <button data-act="front">⬆ Poner por arriba</button>
+    <button data-act="back">⬇ Poner por debajo</button>
+    <button data-act="photo">📷 Poner foto</button>
+    <button data-act="draw">✏️ Dibujar</button>
+    <button data-act="text">✍️ Escribir</button>
+    <button data-act="flag">🏳️ Cambiar bandera</button>
+    <button data-act="delete" class="danger">🗑 Eliminar</button>
+  </div>
+
+  <!-- foto de la heladera -->
+  <div id="shotModal" class="modal" hidden>
+    <div class="sheet shot-sheet">
+      <img id="shotImg" alt="Foto de tu heladera">
+      <input id="shotName" class="field" type="text" maxlength="40" placeholder="Ponele nombre a tu heladera" autocomplete="off">
+      <div class="row">
+        <button id="shotCancel" class="ghost">Cancelar</button>
+        <button id="shotDownload" class="ghost">Descargar</button>
+        <button id="shotUpload" class="primary">Subir a la galería</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- galería -->
+  <div id="galleryModal" class="modal gallery" hidden>
+    <div class="gallery-head">
+      <h2>Galería <small id="galleryKind"></small></h2>
+      <button id="galleryClose" class="close" title="Cerrar">✕</button>
+    </div>
+    <div id="galleryGrid" class="gallery-grid"></div>
+    <p id="galleryEmpty" class="gallery-empty" hidden>Todavía no hay fotos. Tocá la cámara 📷 para subir la primera.</p>
+  </div>
+  <div id="viewer" class="modal viewer" hidden>
+    <img id="viewerImg" alt="">
+    <p id="viewerName" class="viewer-name"></p>
+    <div class="row">
+      <button id="viewerClose" class="ghost">Cerrar</button>
+      <button id="viewerDownload" class="ghost">Descargar</button>
+      <button id="viewerDelete" class="ghost danger">Borrar</button>
+    </div>
+  </div>
+
+  <!-- dibujar en la hoja -->
+  <div id="drawModal" class="modal draw" hidden>
+    <div class="draw-board">
+      <img id="drawPaper" src="assets/magnets/hoja.png" alt="">
+      <canvas id="drawCanvas"></canvas>
+    </div>
+    <div class="draw-tools">
+      <div id="drawColors" class="colors"></div>
+      <div class="sizes">
+        <button data-size="4" title="Fino">●</button>
+        <button data-size="10" title="Medio" class="on">⬤</button>
+        <button data-size="22" title="Grueso"><b>⬤</b></button>
+      </div>
+      <button id="drawEraser" class="ghost">🧽 Goma</button>
+      <button id="drawUndo" class="ghost">↶ Deshacer</button>
+      <button id="drawClear" class="ghost">Borrar todo</button>
+      <button id="drawCancel" class="ghost">Cancelar</button>
+      <button id="drawDone" class="primary">Listo</button>
+    </div>
+  </div>
+
+  <!-- escribir en el cassette -->
+  <div id="textModal" class="modal" hidden>
+    <div class="sheet text-sheet">
+      <label for="textInput">¿Qué banda o canción?</label>
+      <input id="textInput" class="field" type="text" maxlength="28" autocomplete="off">
+      <div class="row">
+        <button id="textCancel" class="ghost">Cancelar</button>
+        <button id="textOk" class="primary">Listo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- elegir bandera -->
+  <div id="flagModal" class="modal" hidden>
+    <div class="sheet flag-sheet">
+      <div class="flag-head">
+        <input id="flagSearch" class="field" type="search" placeholder="Buscar país…" autocomplete="off">
+        <button id="flagClose" class="close dark" title="Cerrar">✕</button>
+      </div>
+      <div id="flagGrid" class="flag-grid"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"><span id="toastText"></span><button id="toastUndo" hidden>Deshacer</button></div>
+  <input id="filePick" type="file" accept="image/*" hidden>
+  <audio id="music" src="assets/music.mp3" loop preload="auto"></audio>
+
+  <script src="js/config.js"></script>
+  <script src="js/magnets.js"></script>
+  <script src="js/gallery.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
