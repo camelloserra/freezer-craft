@@ -7,15 +7,28 @@
   'use strict';
 
   // ---------- fondo y geometría (en píxeles de assets/fridge.jpg) ----------
-  const BG = {
-    src: 'assets/fridge.jpg', w: 2538, h: 1592,
+  const BG_TALL = {
+    src: 'assets/fridge.jpg', w: 2538, h: 1592, bleed: 0,
     doors: [{ x1: 72, y1: 62, x2: 2495, y2: 1592 }],            // la chapa donde pegan los imanes
     handles: [{ x1: 38, y1: 1024, x2: 256, y2: 1592 }],         // la manija
     overlay: { src: 'assets/handle.png', x: 30, y: 1015, w: 232, h: 577 }, // recorte de la manija (va por encima)
   };
+  // Pantallas muy apaisadas (celular acostado): chapa de punta a punta, sin el marco de la heladera.
+  // Los imanes pueden salirse apenas del cuadro (bleed).
+  const BG_WIDE = {
+    src: 'assets/fridge_wide.jpg', w: 2144, h: 756, bleed: 10,
+    doors: [{ x1: -10, y1: -10, x2: 2154, y2: 766 }],
+    handles: [{ x1: 0, y1: 486, x2: 152, y2: 756 }],
+    overlay: { src: 'assets/handle_wide.png', x: 0, y: 480, w: 156, h: 276 },
+  };
+  const WIDE_FROM = 2.15;       // a partir de esta proporción (ancho / alto) se usa BG_WIDE
+  let BG = BG_TALL;
   const WORLD = 775;            // alto del mundo: más chico = imanes más grandes en pantalla
   let WW = 1300, WH = WORLD, DOORS = [], HANDLES = [];
   let bgBox = { x: 0, y: 0, w: 1, h: 1, k: 1 };
+  let itemsWW = null;      // ancho del mundo para el que está armado el acomodo actual
+  let pristine = false;    // true mientras el acomodo inicial no fue tocado
+  let keepPristine = false;
 
   // Título del medio, escrito con imanes de letras
   const TITLE = [
@@ -24,7 +37,7 @@
   ];
   const HOLDER_BALLS = ['ball_red_1', 'ball_blue_1', 'ball_gold_1'];  // sostienen los papeles al empezar
   const HAND_FONT = '"Marker Felt", "Chalkboard SE", "Comic Sans MS", "Segoe Print", cursive';
-  const MUSIC_VOLUME = 0.5;
+  const MUSIC_VOLUME = 0.25;
 
   const BY_ID = Object.fromEntries(window.MAGNETS.map(m => [m.id, m]));
   const SAVE_KEY = 'freezercraft:v6';
@@ -191,10 +204,14 @@
     const W = stageWrap.clientWidth || 1, H = stageWrap.clientHeight || 1;
     WH = WORLD; WW = Math.max(Math.round(WH * W / H), 900);
     // fondo tipo "cover", pegado arriba a la izquierda (esquina de la puerta y manija)
+    const nextBG = WW / WH >= WIDE_FROM ? BG_WIDE : BG_TALL;
+    if (nextBG !== BG || !bgEl.getAttribute('data-bg')) {
+      BG = nextBG; bgEl.src = BG.src; handleEl.src = BG.overlay.src; bgEl.setAttribute('data-bg', BG.src);
+    }
     const k = Math.max(WW / BG.w, WH / BG.h);
     bgBox = { w: BG.w * k, h: BG.h * k, x: 0, y: 0, k };
     Object.assign(bgEl.style, { width: bgBox.w + 'px', height: bgBox.h + 'px' });
-    const map = r => ({ x1: r.x1 * k, y1: r.y1 * k, x2: Math.min(r.x2 * k, WW), y2: Math.min(r.y2 * k, WH) });
+    const map = r => ({ x1: r.x1 * k, y1: r.y1 * k, x2: Math.min(r.x2 * k, WW + BG.bleed), y2: Math.min(r.y2 * k, WH + BG.bleed) });
     HANDLES = BG.handles.map(map);
     DOORS = BG.doors.map(map);
     const ov = BG.overlay;
@@ -218,7 +235,20 @@
   function onResize() {
     layout();
     clearTimeout(fitTimer);
-    fitTimer = setTimeout(() => { items.forEach(it => { settle(it); render(it); }); checkPapers(); save(); }, 150);
+    fitTimer = setTimeout(refit, 150);
+  }
+  // Si cambia la forma de la pantalla (por ejemplo al girar el teléfono), los objetos se reparten
+  // para ocupar todo el ancho: si nadie tocó nada, se rearma el acomodo inicial; si no, se estira.
+  function refit() {
+    if (itemsWW && Math.abs(WW - itemsWW) > 2) {
+      if (pristine) { initialLayout(); return; }
+      const f = WW / itemsWW;
+      items.forEach(it => { it.x *= f; });
+      if (introPos) introPos.x *= f;
+      itemsWW = WW;
+    }
+    items.forEach(it => { settle(it); render(it); }); checkPapers(); placeIntro();
+    keepPristine = true; save(); keepPristine = false;
   }
   function toStage(cx, cy) {
     const r = stageWrap.getBoundingClientRect();
@@ -675,7 +705,7 @@
   // ---------- texto de bienvenida debajo del título ----------
   function placeIntro() {
     if (!introPos) return;
-    Object.assign(introEl.style, { left: introPos.x + 'px', top: introPos.y + 'px', fontSize: Math.max(20, 14 / scale) + 'px' });
+    Object.assign(introEl.style, { left: introPos.x + 'px', top: introPos.y + 'px', fontSize: Math.max(14, 10.5 / scale) + 'px' });
   }
   function showIntro() { introEl.hidden = false; introEl.classList.remove('gone'); placeIntro(); }
   function hideIntro() { if (!introEl.hidden) { introEl.classList.add('gone'); setTimeout(() => { introEl.hidden = true; }, 500); } }
@@ -719,10 +749,21 @@
       return true;
     };
     HANDLES.forEach(h => mark({ x1: h.x1, y1: h.y1 - 6, x2: h.x2 + 14, y2: h.y2 + 6 }, 2));
-    const u = 1 / base;  // lugar para la barra de arriba y los botones de abajo
-    mark({ x1: 0, y1: 0, x2: WW, y2: 58 * u }, 2);
-    mark({ x1: 0, y1: WH - 70 * u, x2: 170 * u, y2: WH }, 2);
-    mark({ x1: WW - 100 * u, y1: WH - 100 * u, x2: WW, y2: WH }, 2);
+    // lugar libre solo debajo del logo y de los botones (el resto, hasta arriba de todo, se usa)
+    const markEl = (el, pad = 8) => {
+      if (!el) return;
+      const r = el.getBoundingClientRect(), w = stageWrap.getBoundingClientRect();
+      if (!r.width) return;
+      const p = toStage(r.left, r.top), q = toStage(r.right, r.bottom), e = pad / scale;
+      mark({ x1: p.x - e, y1: p.y - e, x2: q.x + e, y2: q.y + e }, 2);
+    };
+    if (matchMedia('(orientation: portrait) and (pointer: coarse)').matches) {
+      // juego girado (celular en vertical): las medidas de pantalla vienen giradas, se usan franjas fijas
+      const u = 1 / base;
+      mark({ x1: 0, y1: 0, x2: WW, y2: 58 * u }, 2);
+      mark({ x1: 0, y1: WH - 70 * u, x2: 170 * u, y2: WH }, 2);
+      mark({ x1: WW - 100 * u, y1: WH - 100 * u, x2: WW, y2: WH }, 2);
+    } else ['.logo', '.actions', '#btnGallery', '#btnCamera'].forEach(q => markEl(document.querySelector(q)));
     const RX = Math.min(310, WW * 0.25), RY = Math.min(185, WH * 0.24);
     for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
       const x = gx * C + C / 2, y = gy * C + C / 2;
@@ -773,7 +814,9 @@
     holderQueue.forEach(id => { const c = cand[Math.floor(rand() * 300)]; settle(add(id, c.x, c.y, 0)); });
     items.forEach(render);
     showIntro();
-    save();
+    itemsWW = WW;
+    keepPristine = true; save(); keepPristine = false;
+    pristine = true;
   }
 
   // ---------- guardar / cargar ----------
@@ -782,16 +825,18 @@
     clearTimeout(saveTimer);
     try {
       const data = items.map(({ id, x, y, r, z, photo, drawing, text, flag }) => ({ id, x: Math.round(x), y: Math.round(y), r, z, photo, drawing, text, flag }));
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ items: data, intro: introPos }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ items: data, intro: introPos, ww: itemsWW, pristine }));
     } catch { say('No entra más nada en la memoria de este navegador (probá con fotos o dibujos más simples).'); }
   }
-  function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
+  function save() { if (!keepPristine) pristine = false; clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
   function load() {
     try {
       const data = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
       if (!data || !data.items || !data.items.length) return false;
       items = data.items.filter(i => BY_ID[i.id]).map(i => ({ ...i, uid: nextUid++ }));
       introPos = data.intro || null;
+      itemsWW = data.ww || WW;
+      pristine = !!data.pristine;
       items.forEach(settle);
       return true;
     } catch { return false; }
@@ -987,6 +1032,10 @@
 
   // ---------- arranque ----------
   window.addEventListener('resize', onResize);
+  const lateResize = () => [60, 250, 600, 1200].forEach(t => setTimeout(onResize, t));
+  window.addEventListener('orientationchange', lateResize);
+  if (window.visualViewport) visualViewport.addEventListener('resize', onResize);
+  matchMedia('(orientation: portrait)').addEventListener?.('change', lateResize);
   new ResizeObserver(onResize).observe(stageWrap);
   layout();
   if (load()) { items.forEach(render); checkPapers(); }
