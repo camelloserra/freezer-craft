@@ -7,7 +7,7 @@
   <meta name="description" content="Reacomodá los imanes de tu heladera, dibujá, poné tus fotos y subí tu heladera a la galería.">
   <meta name="theme-color" content="#1c1c1e">
   <link rel="icon" href="assets/magnets/a08.png">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
   <!-- Todo el juego. En un celular en vertical se ve girado: así la persona gira el teléfono. -->
@@ -22,15 +22,15 @@
 
     <main id="stageWrap" class="stage-wrap" aria-label="Heladera">
       <div id="stage" class="stage">
-        <img class="stage-bg" src="" alt="" draggable="false">
+        <img class="stage-bg" src="assets/fridge.jpg" alt="" draggable="false">
         <div id="items" class="items"></div>
         <p id="intro" class="intro" hidden>Creá lo que quieras.<br>Tocá cada objeto para más opciones.<span class="only-mouse"><br>Selección múltiple con Shift marcando un área.</span></p>
-        <img class="handle-overlay" src="" alt="" draggable="false">
+        <img class="handle-overlay" src="assets/handle.png" alt="" draggable="false">
       </div>
       <div id="flash" class="flash"></div>
     </main>
 
-    <button id="btnGallery" class="glass fab-left" title="Ver la galería">🖼️ <span>Galería</span></button>
+    <button id="btnGallery" class="glass fab-left" title="Ver la galería"><span>Galería</span></button>
     <button id="btnCamera" class="fab-right" title="Sacarle una foto a tu heladera">
       <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
     </button>
@@ -139,9 +139,9 @@
   <input id="filePick" type="file" accept="image/*" hidden>
   <audio id="music" src="assets/music.mp3" loop preload="auto"></audio>
 
-  <script src="js/config.js"></script>
-  <script src="js/magnets.js"></script>
-  <script src="js/gallery.js"></script>
-  <script src="js/game.js"></script>
+  <script src="js/config.js?v=5"></script>
+  <script src="js/magnets.js?v=5"></script>
+  <script src="js/gallery.js?v=5"></script>
+  <script src="js/game.js?v=5"></script>
 </body>
 </html>
